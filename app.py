@@ -544,9 +544,10 @@ if menu == "Dashboard & Operations":
                             <div class="terms">
                                 <b>TERMS & CONDITIONS:</b>
                                 <ul style="margin: 2px 0; padding-left: 15px;">
-                                    <li>Items must be collected within 15 days.</li>
-                                    <li>Warranty as per manufacturer policies. Physical/liquid damages are not covered under warranty.</li>
-                                    <li>Not responsible for data loss or physical/liquid damages during service.</li>
+                                    <li>Items must be collected within 15 days of servive. INFOSOLUTIONS is not liable after this period.</li>
+                                    <li>Backup data prior to service.We are not responsible for any data loss.</li>
+                                    <li>No warranty on physical/liquid damages or power surges.</li>
+                                    <li>Produce this original receipt for device collection.</li>
                                 </ul>
                             </div>
                             <div class="sign"><span>Customer Signature</span><span>Authorized Signatory</span></div>
