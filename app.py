@@ -542,7 +542,7 @@ if menu == "Dashboard & Operations":
                         </div>
                         <div>
                             <div class="terms">
-                            <div class="terms" style="margin-top: -20px; margin-bottom: 0px;">
+                            <div class="terms" style="margin-top: -40px; margin-bottom: 0px;">
                                 <b>TERMS & CONDITIONS:</b>
                                 <ul style="margin: 2px 0; padding-left: 15px;">
                                     <li>Items must be collected within 15 days of servive. INFOSOLUTIONS is not liable after this period.</li>
