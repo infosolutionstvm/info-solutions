@@ -551,7 +551,7 @@ if menu == "Dashboard & Operations":
                                     <li>Produce this original receipt for device collection.</li>
                                 </ul>
                             </div>
-                            <div class="terms" style="margin-top: 10px; margin-bottom: 0px;">
+                            <div class="terms" style="margin-top: 20px; margin-bottom: 0px;">
                             <div class="sign"><span>Customer Signature</span><span>Authorized Signatory</span></div>
                         </div>
                         <button class="btn" onclick="window.print()">🖨️ PRINT RECEIPT</button>
