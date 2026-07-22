@@ -377,7 +377,7 @@ if not st.session_state["logged_in"]:
             login_btn = st.form_submit_button("LOG IN 🚀", use_container_width=True, type="primary")
 
             if login_btn:
-                if username == "admin" and password == "admin123":
+                if username == "Info" and password == "passwordilla":
                     st.session_state["logged_in"] = True
                     st.toast("Welcome Back!", icon="🎉")
                     st.rerun()
