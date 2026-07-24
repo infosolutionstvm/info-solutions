@@ -27,7 +27,7 @@ BG_COLOR = "#F4F6F9"    # Light clean background
 TEXT_MAIN = "#1A1A1A"   # Crisp black/dark text for content
 
 # Custom CSS for App Aesthetics
-st.html(f"""<style>
+st.markdown(f"""<style>
 .main {{ background-color: {BG_COLOR}; }}
 .stMetric {{
     background-color: #ffffff;
@@ -48,14 +48,38 @@ st.html(f"""<style>
     margin-top: 20px;
 }}
 .logo-container {{
-    background-color: #ffffff;
-    padding: 10px;
-    border-radius: 12px;
+    background: #ffffff;
+    padding: 10px 16px;
+    border-radius: 14px;
     display: inline-block;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    box-shadow: 0 4px 14px rgba(0,43,73,0.12);
+    border: 1px solid rgba(0,43,73,0.10);
     margin-bottom: 12px;
 }}
-</style>""")
+.sidebar-brand {{
+    background: linear-gradient(145deg, #f7fbff 0%, #e8f1f7 100%);
+    border-radius: 14px;
+    padding: 14px 12px 12px;
+    margin: -4px 0 12px;
+    color: {COLOR_BLUE};
+    box-shadow: 0 5px 14px rgba(0,43,73,0.20);
+}}
+.sidebar-brand-title {{ font-size: 1.05rem; font-weight: 800; letter-spacing: .4px; margin-top: 8px; }}
+.sidebar-brand-tagline {{ color: #526b7b; font-size: .72rem; line-height: 1.35; margin-top: 3px; }}
+.profile-card {{
+    border: 1px solid #dce6ee;
+    border-left: 4px solid {COLOR_RED};
+    border-radius: 10px;
+    padding: 9px 10px;
+    background: #ffffff;
+    font-size: .82rem;
+    color: #29465a;
+}}
+.nav-section {{ color: #557080; font-size: .72rem; font-weight: 800; letter-spacing: .08em; margin: 13px 0 2px; }}
+[data-testid="stAppViewContainer"] {{ overflow-y: auto; }}
+[data-testid="stMainBlockContainer"] {{ padding-top: 1rem; padding-bottom: 3rem; }}
+[data-testid="stSidebarContent"] {{ overflow-y: auto; }}
+</style>""", unsafe_allow_html=True)
 
 # ---------------------------------------------------------
 # COMPANY DETAILS & BRANDED LOGO HTML
@@ -115,6 +139,7 @@ def get_db_connection():
         st.error(f"❌ Database Connection Error: {e}")
         st.stop()
 
+@st.cache_resource
 def init_db():
     conn = get_db_connection()
     cur = conn.cursor()
@@ -237,6 +262,7 @@ def init_db():
     cur.execute("ALTER TABLE service_entries ADD COLUMN IF NOT EXISTS expected_delivery DATE;")
     cur.execute("ALTER TABLE service_entries ADD COLUMN IF NOT EXISTS labor_charge NUMERIC DEFAULT 0;")
     cur.execute("ALTER TABLE service_entries ADD COLUMN IF NOT EXISTS parts_charge NUMERIC DEFAULT 0;")
+    cur.execute("ALTER TABLE quotations ADD COLUMN IF NOT EXISTS paid_amount NUMERIC DEFAULT 0;")
 
     cur.execute("SELECT id FROM staff_users WHERE username = %s;", ("admin",))
     if not cur.fetchone():
@@ -321,6 +347,38 @@ def save_customer(customer_name, phone, email="", address="", gstin="", notes=""
     cur.close()
     conn.close()
 
+def get_customer_profiles():
+    """Return customer records for CRM-linked forms."""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("""SELECT id, customer_name, phone, COALESCE(email, ''), COALESCE(address, ''),
+                         COALESCE(gstin, ''), COALESCE(notes, '')
+                  FROM customers ORDER BY customer_name, phone;""")
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    return [dict(row) for row in rows]
+
+def update_customer(customer_id, customer_name, phone, email="", address="", gstin="", notes=""):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT phone FROM customers WHERE id = %s;", (customer_id,))
+    existing_customer = cur.fetchone()
+    previous_phone = existing_customer[0] if existing_customer else phone
+    cur.execute('''UPDATE customers
+                   SET customer_name = %s, phone = %s, email = %s, address = %s,
+                       gstin = %s, notes = %s, updated_at = CURRENT_TIMESTAMP
+                   WHERE id = %s;''',
+                (customer_name, phone, email, address, gstin, notes, customer_id))
+    # Keep historical service, quotation, project and payment records connected
+    # when a CRM name or phone number is corrected.
+    for table in ("service_entries", "quotations", "projects", "payments"):
+        cur.execute(f"UPDATE {table} SET customer_name = %s, phone = %s WHERE phone = %s;",
+                    (customer_name, phone, previous_phone))
+    conn.commit()
+    cur.close()
+    conn.close()
+
 def get_active_staff():
     conn = get_db_connection()
     cur = conn.cursor()
@@ -353,23 +411,14 @@ if "authenticated" not in st.session_state:
 def login_page():
     col1, col2, col3 = st.columns([1, 2.2, 1])
     with col2:
-        logo_img_html = f'''
-            <div class="logo-container">
-                <img src="data:image/png;base64,{LOGO_BASE64}" style="max-height:80px; display:block; margin:0 auto;">
-            </div>
-        ''' if LOGO_BASE64 else '🛠️'
-        
-        st.html(f"""<div class="login-box">
-                {logo_img_html}
-                <h2 style="margin: 5px 0 0 0; letter-spacing: 1px;">
-                    <span style="color:{COLOR_RED}; font-weight:800;">INFO</span> 
-                    <span style="color:{COLOR_BLUE}; font-weight:800;">SOLUTIONS</span>
-                </h2>
-                <p style="font-size: 12px; color: #555555; font-weight: 500; margin-top: 4px;">{COMPANY_TAGLINE}</p>
-                <hr style="border-color: #eee; margin: 15px 0;">
-                <h4 style="margin-bottom: 15px; color: {COLOR_BLUE}; font-weight: 600;">🔐 Staff Login Portal</h4>
-            </div>
-        """)
+        with st.container(border=True):
+            if LOGO_PATH:
+                logo_left, logo_center, logo_right = st.columns([1, 2, 1])
+                with logo_center:
+                    st.image(LOGO_PATH, use_container_width=True)
+            st.markdown(f'<h2 style="text-align:center; margin-bottom:0;">{BRAND_HEADER_HTML}</h2>', unsafe_allow_html=True)
+            st.markdown(f'<p style="text-align:center; color:#526b7b; font-size:.82rem;">{COMPANY_TAGLINE}</p>', unsafe_allow_html=True)
+            st.markdown('<h4 style="text-align:center;">🔐 Staff Login Portal</h4>', unsafe_allow_html=True)
         
         with st.form("login_form"):
             username = st.text_input("Username", key="login_user")
@@ -400,11 +449,16 @@ if not st.session_state.authenticated:
 # SIDEBAR NAVIGATION
 # ---------------------------------------------------------
 if LOGO_PATH:
-    st.sidebar.image(LOGO_PATH, use_container_width=True)
+    with st.sidebar.container(border=True):
+        st.image(LOGO_PATH, use_container_width=True)
 
-st.sidebar.markdown(f"### {BRAND_HEADER_HTML}", unsafe_allow_html=True)
-st.sidebar.caption(COMPANY_TAGLINE)
-st.sidebar.success(f"Signed in: {st.session_state.get('staff_name', 'Staff')} ({st.session_state.get('staff_role', 'Staff')})")
+st.sidebar.markdown(f"""
+<div class="sidebar-brand">
+    <div class="sidebar-brand-title"><span style="color:#ff7777;">INFO</span> SOLUTIONS</div>
+    <div class="sidebar-brand-tagline">{COMPANY_TAGLINE}</div>
+</div>
+<div class="profile-card"><b>{st.session_state.get('staff_name', 'Staff')}</b><br><span>{st.session_state.get('staff_role', 'Staff')}</span></div>
+""", unsafe_allow_html=True)
 
 if st.sidebar.button("Logout 🚪", use_container_width=True):
     st.session_state.authenticated = False
@@ -412,31 +466,18 @@ if st.sidebar.button("Logout 🚪", use_container_width=True):
     st.session_state.pop("staff_role", None)
     st.rerun()
 
-st.sidebar.markdown("---")
+st.sidebar.markdown('<div class="nav-section">WORKSPACE</div>', unsafe_allow_html=True)
+navigation_groups = {
+    "Dashboard": ["📊 Executive Dashboard"],
+    "Service Desk": ["📌 New Service Ticket", "📂 Manage Service Tickets"],
+    "CRM & Sales": ["👥 Customer CRM", "📝 Quotation Builder", "💳 Payments & Collections"],
+    "Operations": ["📍 CCTV & Solar Projects", "👑 Staff Management", "📦 Product Catalog"],
+    "Reports & Search": ["📥 Data Reports & Search"],
+}
+navigation_group = st.sidebar.selectbox("Section", list(navigation_groups), label_visibility="collapsed")
+choice = st.sidebar.selectbox("Open page", navigation_groups[navigation_group], label_visibility="collapsed")
 
-menu = [
-    "👥 Customer CRM",
-    "💳 Payments & Collections",
-    "📍 CCTV & Solar Projects",
-    "👑 Staff Management",
-    "📊 Executive Dashboard",
-    "📌 New Service Ticket", 
-    "📂 Manage Service Tickets", 
-    "📝 Quotation Builder", 
-    "📦 Product Catalog",
-    "📥 Data Reports & Search"
-]
-choice = st.sidebar.radio("Navigation Menu", menu)
-
-col_h1, col_h2 = st.columns([1, 5])
-with col_h1:
-    if LOGO_PATH:
-        st.image(LOGO_PATH, width=80)
-with col_h2:
-    st.markdown(f"## {BRAND_HEADER_HTML}", unsafe_allow_html=True)
-    st.caption(f"*{COMPANY_TAGLINE}*")
-
-st.markdown("---")
+st.markdown(f"<div style='font-size:.8rem; color:#657786; margin-bottom:.4rem;'>{COMPANY_NAME} · {COMPANY_TAGLINE}</div>", unsafe_allow_html=True)
 
 # ---------------------------------------------------------
 # TAB 1: EXECUTIVE DASHBOARD (FIXED ERROR)
@@ -525,12 +566,22 @@ elif choice == "📌 New Service Ticket":
     receipt_no = generate_receipt_no()
     st.info(f"Generated Ticket No: **{receipt_no}**")
 
+    service_customers = get_customer_profiles()
+    service_customer_options = [None] + service_customers
+    selected_service_customer = st.selectbox(
+        "Use saved customer details (optional)",
+        service_customer_options,
+        format_func=lambda c: "-- Enter new customer --" if c is None else f"{c['customer_name']} · {c['phone']}",
+        key="service_customer_profile",
+    )
+    service_customer = selected_service_customer or {}
+
     with st.form("new_service_form", clear_on_submit=True):
         col1, col2 = st.columns(2)
         
         with col1:
-            customer_name = st.text_input("Customer Name*")
-            phone = st.text_input("Phone Number*")
+            customer_name = st.text_input("Customer Name*", value=service_customer.get("customer_name", ""))
+            phone = st.text_input("Phone Number*", value=service_customer.get("phone", ""))
             item_description = st.text_input("Item Description (Laptop/Desktop/CCTV/Solar)*")
             serial_no = st.text_input("Serial / Model No")
             
@@ -833,10 +884,19 @@ elif choice == "📝 Quotation Builder":
         quote_no = generate_quote_no()
         st.info(f"Generated Quotation No: **{quote_no}**")
 
+        quotation_customers = get_customer_profiles()
+        selected_quote_customer = st.selectbox(
+            "Use saved customer details (optional)",
+            [None] + quotation_customers,
+            format_func=lambda c: "-- Enter new customer --" if c is None else f"{c['customer_name']} · {c['phone']}",
+            key="quotation_customer_profile",
+        )
+        quote_customer = selected_quote_customer or {}
+
         col_cust1, col_cust2, col_cust3, col_cust4 = st.columns([2, 2, 2, 2])
-        customer_name = col_cust1.text_input("Customer / Company Name")
-        customer_place = col_cust2.text_input("Customer Place / City")
-        phone = col_cust3.text_input("Phone Number")
+        customer_name = col_cust1.text_input("Customer / Company Name", value=quote_customer.get("customer_name", ""))
+        customer_place = col_cust2.text_input("Customer Place / City", value=quote_customer.get("address", ""))
+        phone = col_cust3.text_input("Phone Number", value=quote_customer.get("phone", ""))
         selected_category = col_cust4.selectbox("Select Service Category", CATEGORY_OPTIONS)
 
         st.markdown("#### Add Line Items")
@@ -917,6 +977,7 @@ elif choice == "📝 Quotation Builder":
                         conn.commit()
                         cur.close()
                         conn.close()
+                        save_customer(customer_name, phone, address=customer_place)
                         
                         st.success(f"Quotation {quote_no} saved successfully!")
                         
@@ -1060,6 +1121,7 @@ elif choice == "📝 Quotation Builder":
                         conn.commit()
                         cur.close()
                         conn.close()
+                        save_customer(e_cust_name, e_phone, address=e_place)
                         st.success(f"Quotation {selected_q_no} updated successfully!")
                         st.rerun()
 
@@ -1079,8 +1141,13 @@ elif choice == "📝 Quotation Builder":
 
             logo_html = f'<img src="data:image/png;base64,{LOGO_BASE64}" style="max-height:55px; float:left; margin-right:12px;">' if LOGO_BASE64 else ''
             
-            raw_date = q_data["Date"]
-            formatted_quote_date = pd.to_datetime(raw_date).strftime("%d-%m-%Y") if (raw_date and str(raw_date).lower() != 'none') else datetime.now().strftime("%d-%m-%Y")
+            raw_date = q_data.get("Date")
+            parsed_quote_date = pd.to_datetime(raw_date, errors="coerce")
+            formatted_quote_date = (
+                parsed_quote_date.strftime("%d-%m-%Y")
+                if not pd.isna(parsed_quote_date)
+                else datetime.now().strftime("%d-%m-%Y")
+            )
 
             items_table_rows = ""
             calc_subtotal = 0.0
@@ -1416,18 +1483,31 @@ elif choice == "👥 Customer CRM":
     st.subheader("Customer CRM & Service History")
     crm_tab1, crm_tab2 = st.tabs(["Add / Update Customer", "Customer History"])
     with crm_tab1:
+        crm_customers = get_customer_profiles()
+        selected_crm_customer = st.selectbox(
+            "Select an existing customer to edit",
+            [None] + crm_customers,
+            format_func=lambda c: "-- Add a new customer --" if c is None else f"{c['customer_name']} · {c['phone']}",
+            key="crm_customer_editor",
+        )
+        crm_customer = selected_crm_customer or {}
         with st.form("customer_form", clear_on_submit=True):
             c1, c2 = st.columns(2)
-            customer_name = c1.text_input("Customer Name*")
-            customer_phone = c1.text_input("Phone Number*")
-            customer_email = c1.text_input("Email")
-            customer_address = c2.text_area("Address")
-            customer_gstin = c2.text_input("GSTIN")
-            customer_notes = st.text_area("Customer Notes")
-            if st.form_submit_button("Save Customer", type="primary"):
+            customer_name = c1.text_input("Customer Name*", value=crm_customer.get("customer_name", ""))
+            customer_phone = c1.text_input("Phone Number*", value=crm_customer.get("phone", ""))
+            customer_email = c1.text_input("Email", value=crm_customer.get("email", ""))
+            customer_address = c2.text_area("Address", value=crm_customer.get("address", ""))
+            customer_gstin = c2.text_input("GSTIN", value=crm_customer.get("gstin", ""))
+            customer_notes = st.text_area("Customer Notes", value=crm_customer.get("notes", ""))
+            action_text = "Update Customer" if selected_crm_customer else "Save Customer"
+            if st.form_submit_button(action_text, type="primary"):
                 if customer_name and customer_phone:
-                    save_customer(customer_name, customer_phone, customer_email, customer_address, customer_gstin, customer_notes)
-                    st.success("Customer profile saved successfully.")
+                    if selected_crm_customer:
+                        update_customer(selected_crm_customer["id"], customer_name, customer_phone, customer_email, customer_address, customer_gstin, customer_notes)
+                        st.success("Customer profile updated successfully.")
+                    else:
+                        save_customer(customer_name, customer_phone, customer_email, customer_address, customer_gstin, customer_notes)
+                        st.success("Customer profile saved successfully.")
                     st.rerun()
                 else:
                     st.warning("Customer name and phone number are required.")
@@ -1459,12 +1539,33 @@ elif choice == "💳 Payments & Collections":
     st.subheader("Payments, Collections & Outstanding Balances")
     pay_tab1, pay_tab2 = st.tabs(["Record Payment", "Collection Register"])
     with pay_tab1:
+        reference_type = st.selectbox("Payment For", ["Service", "Quotation", "Project", "Other"], key="payment_reference_type")
+        conn = get_db_connection()
+        cur = conn.cursor()
+        if reference_type == "Service":
+            cur.execute("SELECT receipt_no, customer_name, phone FROM service_entries ORDER BY entry_date DESC;")
+        elif reference_type == "Quotation":
+            cur.execute("SELECT quote_no, customer_name, phone FROM quotations ORDER BY quote_date DESC;")
+        elif reference_type == "Project":
+            cur.execute("SELECT project_no, customer_name, phone FROM projects ORDER BY created_at DESC;")
+        else:
+            cur.execute("SELECT '' AS reference_no, customer_name, phone FROM customers ORDER BY customer_name;")
+        payment_references = [dict(row) for row in cur.fetchall()]
+        cur.close()
+        conn.close()
+
+        selected_reference = st.selectbox(
+            "Link payment to an existing record",
+            [None] + payment_references,
+            format_func=lambda r: "-- Select record / use manual details --" if r is None else f"{r['reference_no'] or 'Customer'} · {r['customer_name']} · {r['phone']}",
+            key="payment_linked_reference",
+        )
+        payment_reference = selected_reference or {}
         with st.form("payment_form", clear_on_submit=True):
             p1, p2 = st.columns(2)
-            reference_type = p1.selectbox("Payment For", ["Service", "Quotation", "Project", "Other"])
-            reference_no = p1.text_input("Reference No. (Ticket / Quote / Project)")
-            payment_customer = p1.text_input("Customer Name*")
-            payment_phone = p2.text_input("Customer Phone")
+            reference_no = p1.text_input("Reference No. (Ticket / Quote / Project)", value=payment_reference.get("reference_no", ""))
+            payment_customer = p1.text_input("Customer Name*", value=payment_reference.get("customer_name", ""))
+            payment_phone = p2.text_input("Customer Phone", value=payment_reference.get("phone", ""))
             payment_amount = p2.number_input("Amount Received (₹)", min_value=0.0, step=50.0)
             payment_mode = p2.selectbox("Payment Mode", ["Cash", "UPI", "Bank Transfer", "Card", "Cheque"])
             payment_remarks = st.text_input("Remarks")
@@ -1475,6 +1576,12 @@ elif choice == "💳 Payments & Collections":
                     cur.execute('''INSERT INTO payments (reference_type, reference_no, customer_name, phone, amount, payment_mode, remarks, received_by)
                                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s);''',
                                 (reference_type, reference_no, payment_customer, payment_phone, float(payment_amount), payment_mode, payment_remarks, st.session_state.get("staff_name", "")))
+                    if reference_type == "Service" and reference_no:
+                        cur.execute("UPDATE service_entries SET advance_paid = advance_paid + %s WHERE receipt_no = %s;", (float(payment_amount), reference_no))
+                    elif reference_type == "Quotation" and reference_no:
+                        cur.execute("UPDATE quotations SET paid_amount = COALESCE(paid_amount, 0) + %s WHERE quote_no = %s;", (float(payment_amount), reference_no))
+                    elif reference_type == "Project" and reference_no:
+                        cur.execute("UPDATE projects SET advance_paid = advance_paid + %s WHERE project_no = %s;", (float(payment_amount), reference_no))
                     conn.commit()
                     cur.close()
                     conn.close()
@@ -1504,16 +1611,23 @@ elif choice == "📍 CCTV & Solar Projects":
     with project_tab1:
         project_no = generate_project_no()
         st.info(f"New Project No: {project_no}")
+        selected_project_customer = st.selectbox(
+            "Use saved customer details (optional)",
+            [None] + get_customer_profiles(),
+            format_func=lambda c: "-- Enter new customer --" if c is None else f"{c['customer_name']} · {c['phone']}",
+            key="project_customer_profile",
+        )
+        project_customer_profile = selected_project_customer or {}
         with st.form("project_form", clear_on_submit=True):
             p1, p2 = st.columns(2)
             project_type = p1.selectbox("Project Type", ["CCTV Installation", "Solar Installation", "Computer / Network Project"])
-            project_customer = p1.text_input("Customer Name*")
-            project_phone = p1.text_input("Phone Number*")
+            project_customer = p1.text_input("Customer Name*", value=project_customer_profile.get("customer_name", ""))
+            project_phone = p1.text_input("Phone Number*", value=project_customer_profile.get("phone", ""))
             project_assigned = p2.selectbox("Project Lead", ["Unassigned"] + get_active_staff())
             project_status = p2.selectbox("Project Status", ["Site Survey", "Quotation Sent", "Approved", "Material Ready", "Installation Scheduled", "Installation In Progress", "Completed", "AMC / Warranty"])
             project_value = p2.number_input("Project Value (₹)", min_value=0.0, step=1000.0)
             project_advance = p2.number_input("Advance Received (₹)", min_value=0.0, step=500.0)
-            project_address = st.text_area("Site Address")
+            project_address = st.text_area("Site Address", value=project_customer_profile.get("address", ""))
             installation_date = st.date_input("Planned Installation Date", value=None)
             warranty_end = st.date_input("Warranty / AMC End Date", value=None)
             scope_details = st.text_area("Scope / Equipment Details (camera count, panel capacity, inverter, etc.)")
